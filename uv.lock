@@ -294,8 +294,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "openai", specifier = ">=1.58.1" },
-    { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "openai" },
+    { name = "python-dotenv" },
 ]
 
 [[package]]

@@ -18,9 +18,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Set your OpenAI API key from environment variable
+# Set OpenAI API key
 openai.api_key = os.getenv('OPENAI_API_KEY')
-logger.info(f"OpenAI API Key configured: {'Yes' if openai.api_key else 'No'}")
+logger.info(f"OpenAI API Key configured: {'Yes' if os.getenv('OPENAI_API_KEY') else 'No'}")
 
 class RequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -66,21 +66,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             logger.info(f"Received POST request to path: {self.path}")
             
-            # Check if this is the suggest endpoint
             if self.path != '/suggest':
                 logger.error(f"Invalid endpoint requested: {self.path}")
                 self.send_error(404, "Endpoint not found")
                 return
 
-            # Get content length
             content_length = int(self.headers.get('Content-Length', 0))
             logger.info(f"Content length: {content_length}")
 
-            # Read post data
             post_data = self.rfile.read(content_length)
             logger.info(f"Received data: {post_data.decode('utf-8')}")
             
-            # Parse JSON data
             data = json.loads(post_data.decode('utf-8'))
             query = data.get('query', '')
             logger.info(f"Processing query: {query}")
@@ -90,12 +86,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.send_error(400, "Query parameter is required")
                 return
 
-            # Verify OpenAI API key is set
             if not openai.api_key:
                 logger.error("OpenAI API key not configured")
                 raise ValueError("OpenAI API key not configured")
 
-            # Call OpenAI API
             logger.info("Calling OpenAI API...")
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
@@ -116,7 +110,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             suggestion = response.choices[0].message.content.strip()
             logger.info(f"Got suggestion: {suggestion}")
 
-            # Send response
             self.send_response(200)
             self.send_cors_headers()
             self.send_header('Content-Type', 'application/json')
@@ -126,14 +119,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(response_data.encode('utf-8'))
             logger.info("Successfully sent response")
 
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {str(e)}")
-            logger.error(traceback.format_exc())
-            self.send_error(400, f"Invalid JSON: {str(e)}")
-        except openai.error.OpenAIError as e:
-            logger.error(f"OpenAI API error: {str(e)}")
-            logger.error(traceback.format_exc())
-            self.send_error(500, f"OpenAI API error: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error: {str(e)}")
             logger.error(traceback.format_exc())
@@ -150,7 +135,7 @@ def run():
         server_address = ('', port)
         httpd = HTTPServer(server_address, RequestHandler)
         logger.info(f'Server running on port {port}')
-        logger.info(f'OpenAI API key configured: {bool(openai.api_key)}')
+        logger.info(f'OpenAI API key configured: {bool(os.getenv("OPENAI_API_KEY"))}')
         logger.info('Server ready to handle requests')
         httpd.serve_forever()
     except Exception as e:
