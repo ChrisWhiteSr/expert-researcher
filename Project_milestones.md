@@ -1,3 +1,10 @@
+##Original Prompt##
+now we need to make this agentic, first - take the query results from the user, evaluate them, sort by relevance and put the newest stuff up top.
+
+Then an agent will quickly summarize each paper and drop it into a grid of the top 10 most relevant
+
+Then we need an agent to evaluate the results and tell the user what it thinks and why. Include recommendations for changing the queries, constantly trying to get closer and closer to what the user is really asking.
+
 # Project Milestones
 
 ## Completed
