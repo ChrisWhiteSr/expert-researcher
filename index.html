@@ -30,9 +30,41 @@
                 <div class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Search Query</label>
-                        <input type="text" id="searchQuery" 
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                               placeholder="Enter search terms...">
+                        <div class="flex space-x-2">
+                            <div class="flex-grow relative">
+                                <input type="text" id="searchQuery" 
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                       placeholder="Enter search terms...">
+                            </div>
+                            <button onclick="suggestQuery()" 
+                                    class="px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                Get Suggestion
+                            </button>
+                        </div>
+                        <!-- New Suggestion Dialog -->
+                        <div id="suggestionDialog" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div class="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
+                                <h3 class="text-lg font-semibold mb-4">Query Suggestion</h3>
+                                <div id="suggestionStatus" class="mb-4 text-gray-600">
+                                    Getting suggestion...
+                                </div>
+                                <div id="suggestionContent" class="mb-4">
+                                    <div class="bg-gray-50 p-3 rounded-md">
+                                        <p id="suggestionText" class="text-gray-800 font-medium"></p>
+                                    </div>
+                                </div>
+                                <div class="flex justify-end space-x-3">
+                                    <button onclick="closeSuggestion()" 
+                                            class="px-4 py-2 text-gray-600 hover:text-gray-800">
+                                        Cancel
+                                    </button>
+                                    <button onclick="applySuggestion()" 
+                                            class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                                        Apply Suggestion
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Year Range</label>
@@ -53,6 +85,16 @@
             </div>
         </div>
 
+        <!-- Evaluation and Recommendations Section -->
+        <div id="evaluationSection" class="max-w-4xl mx-auto mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4">Evaluation & Recommendations</h2>
+                <div id="evaluation" class="space-y-4">
+                    <!-- Evaluation results will be injected here -->
+                </div>
+            </div>
+        </div>
+
         <!-- Results Section -->
         <div id="resultsSection" class="max-w-4xl mx-auto">
             <div id="loading" class="hidden text-center py-4">
@@ -64,16 +106,6 @@
                         class="bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500">
                     Load More
                 </button>
-            </div>
-        </div>
-
-        <!-- Evaluation and Recommendations Section -->
-        <div id="evaluationSection" class="max-w-4xl mx-auto mt-8">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-xl font-semibold mb-4">Evaluation & Recommendations</h2>
-                <div id="evaluation" class="space-y-4">
-                    <!-- Evaluation results will be injected here -->
-                </div>
             </div>
         </div>
     </div>
@@ -102,6 +134,10 @@
         let currentQuery = '';
         let currentYearStart = '';
         let currentYearEnd = '';
+        let totalTokensIn = 0;
+        let totalTokensOut = 0;
+        const MODEL_NAME = "Semantic Scholar API + Client-Side Processing";
+        const OPENAI_API_KEY = ''; // This should be handled securely in a real application
 
         async function searchPapers(useToken = false) {
             const query = useToken ? currentQuery : document.getElementById('searchQuery').value.trim();
@@ -177,19 +213,34 @@
 
             if (papers && papers.length > 0) {
                 papers.forEach(paper => {
-                    const authors = paper.authors ? paper.authors.map(author => author.name).join(', ') : 'No authors listed';
-                    const citationCount = paper.citationCount || 0;
-                    const fieldsOfStudy = paper.fieldsOfStudy ? paper.fieldsOfStudy.join(', ') : 'Not specified';
+                    try {
+                        const authors = paper.authors ? paper.authors.map(author => author.name).join(', ') : 'No authors listed';
+                        const citationCount = paper.citationCount || 0;
+                        const fieldsOfStudy = paper.fieldsOfStudy ? paper.fieldsOfStudy.join(', ') : 'Not specified';
+                        const abstract = paper.abstract || 'No abstract available';
+                        const title = paper.title || 'Untitled';
+                        const year = paper.year || 'N/A';
+                        
+                        // Sanitize all strings before creating the HTML
+                        const sanitizedTitle = escapeQuotes(title);
+                        const sanitizedAuthors = escapeQuotes(authors);
+                        const sanitizedDetails = escapeQuotes(`Year: ${year} | Citations: ${citationCount}`);
+                        const sanitizedAbstract = escapeQuotes(abstract);
+                        const sanitizedSummary = escapeQuotes(paper.summary || 'No summary available');
 
-                    resultsDiv.innerHTML += `
-                        <div class="bg-white rounded-lg shadow p-6 hover:bg-gray-50 cursor-pointer transition duration-200" onclick="openModal('${escapeQuotes(paper.title)}', '${escapeQuotes(authors)}', '${escapeQuotes(`Year: ${paper.year || 'N/A'} | Citations: ${citationCount}`)}', '${escapeQuotes(paper.abstract)}')">
-                            <h3 class="text-xl font-semibold mb-2">${paper.title}</h3>
-                            <p class="text-gray-600 mb-2">${authors}</p>
-                            <p class="text-gray-500 mb-2">Year: ${paper.year || 'N/A'} | Citations: ${citationCount}</p>
-                            <p class="text-gray-500 mb-4">Fields of Study: ${fieldsOfStudy}</p>
-                            <p class="text-gray-700">${paper.summary}</p>
-                        </div>
-                    `;
+                        resultsDiv.innerHTML += `
+                            <div class="bg-white rounded-lg shadow p-6 hover:bg-gray-50 cursor-pointer transition duration-200" 
+                                 onclick="openModal('${sanitizedTitle}', '${sanitizedAuthors}', '${sanitizedDetails}', '${sanitizedAbstract}')">
+                                <h3 class="text-xl font-semibold mb-2">${title}</h3>
+                                <p class="text-gray-600 mb-2">${authors}</p>
+                                <p class="text-gray-500 mb-2">Year: ${year} | Citations: ${citationCount}</p>
+                                <p class="text-gray-500 mb-4">Fields of Study: ${fieldsOfStudy}</p>
+                                <p class="text-gray-700">${sanitizedSummary}</p>
+                            </div>
+                        `;
+                    } catch (error) {
+                        console.error('Error processing paper:', error);
+                    }
                 });
 
                 // Display pagination if more papers are available
@@ -209,7 +260,20 @@
         }
 
         function escapeQuotes(str) {
-            return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+            if (!str) return '';
+            try {
+                // First sanitize the string by removing problematic characters
+                return str.toString()
+                    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+                    .replace(/'/g, "\\'")
+                    .replace(/"/g, '\\"')
+                    .replace(/\n/g, ' ') // Replace newlines with spaces
+                    .replace(/\r/g, ' ') // Replace carriage returns with spaces
+                    .trim();
+            } catch (error) {
+                console.error('Error in escapeQuotes:', error);
+                return '';
+            }
         }
 
         function summarizeAbstract(abstract) {
@@ -251,11 +315,27 @@
 
         // Modal Functions
         function openModal(title, authors, details, abstract) {
-            document.getElementById('modalTitle').innerText = title;
-            document.getElementById('modalAuthors').innerText = authors;
-            document.getElementById('modalDetails').innerText = details;
-            document.getElementById('modalAbstract').innerText = abstract;
-            document.getElementById('modal').classList.remove('hidden');
+            try {
+                const modalTitle = document.getElementById('modalTitle');
+                const modalAuthors = document.getElementById('modalAuthors');
+                const modalDetails = document.getElementById('modalDetails');
+                const modalAbstract = document.getElementById('modalAbstract');
+                const modal = document.getElementById('modal');
+
+                if (!modalTitle || !modalAuthors || !modalDetails || !modalAbstract || !modal) {
+                    console.error('Modal elements not found');
+                    return;
+                }
+
+                modalTitle.textContent = title || 'No title available';
+                modalAuthors.textContent = authors || 'No authors available';
+                modalDetails.textContent = details || 'No details available';
+                modalAbstract.textContent = abstract || 'No abstract available';
+                
+                modal.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error in openModal:', error);
+            }
         }
 
         function closeModal() {
@@ -273,6 +353,26 @@
         // Enhanced Evaluation and Recommendations
         function evaluateResults(papers) {
             const evaluationDiv = document.getElementById('evaluation');
+            
+            // Calculate approximate tokens (rough estimation)
+            totalTokensIn = papers.reduce((acc, paper) => {
+                return acc + (paper.abstract?.length || 0) + 
+                       (paper.title?.length || 0) + 
+                       (paper.authors?.reduce((sum, author) => sum + author.name.length, 0) || 0);
+            }, 0);
+            
+            totalTokensOut = papers.reduce((acc, paper) => {
+                return acc + (paper.summary?.length || 0);
+            }, 0);
+
+            // Add model and token information at the top of the evaluation
+            const modelInfo = `
+                <div class="bg-gray-100 border border-gray-300 text-gray-700 px-4 py-3 rounded mb-4">
+                    <p><strong>Model:</strong> ${MODEL_NAME}</p>
+                    <p><strong>Tokens Processed:</strong> ~${Math.round(totalTokensIn/4)} in / ~${Math.round(totalTokensOut/4)} out</p>
+                </div>
+            `;
+
             let totalCitations = 0;
             let avgCitations = 0;
             let fieldsCount = {};
@@ -356,7 +456,7 @@
                 topCitedHtml += '</ul>';
             }
 
-            evaluationDiv.innerHTML = `
+            const existingEvaluation = `
                 <div class="space-y-4">
                     <div class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded">
                         <p><strong>Evaluation:</strong> ${feedback}</p>
@@ -367,7 +467,96 @@
                     </div>
                 </div>
             `;
+
+            evaluationDiv.innerHTML = modelInfo + existingEvaluation;
         }
+
+        async function getSearchSuggestion(query) {
+            try {
+                const response = await fetch('http://localhost:3000/suggest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query })
+                });
+                
+                if (!response.ok) throw new Error('Failed to get suggestion');
+                
+                const data = await response.json();
+                return data.suggestion;
+            } catch (error) {
+                console.error('Error getting search suggestion:', error);
+                throw error;
+            }
+        }
+
+        async function suggestQuery() {
+            const query = document.getElementById('searchQuery').value.trim();
+            if (!query) {
+                alert('Please enter a search query first');
+                return;
+            }
+
+            const suggestionDialog = document.getElementById('suggestionDialog');
+            const suggestionStatus = document.getElementById('suggestionStatus');
+            const suggestionText = document.getElementById('suggestionText');
+            const suggestionContent = document.getElementById('suggestionContent');
+
+            try {
+                // Show dialog with loading state
+                suggestionDialog.classList.remove('hidden');
+                suggestionContent.classList.add('hidden');
+                suggestionStatus.textContent = 'Getting suggestion...';
+                suggestionStatus.classList.remove('text-red-600');
+
+                const response = await fetch('http://localhost:3000/suggest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server responded with ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                // Show suggestion
+                suggestionStatus.textContent = 'Suggested query:';
+                suggestionText.textContent = data.suggestion;
+                suggestionContent.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error getting suggestion:', error);
+                suggestionStatus.textContent = 'Failed to get suggestion. Please try again.';
+                suggestionStatus.classList.add('text-red-600');
+                suggestionContent.classList.add('hidden');
+            }
+        }
+
+        function applySuggestion() {
+            const suggestionText = document.getElementById('suggestionText').textContent;
+            if (suggestionText) {
+                document.getElementById('searchQuery').value = suggestionText;
+            }
+            closeSuggestion();
+        }
+
+        function closeSuggestion() {
+            const suggestionDialog = document.getElementById('suggestionDialog');
+            suggestionDialog.classList.add('hidden');
+        }
+
+        // Close dialog when clicking outside
+        document.addEventListener('click', function(event) {
+            const suggestionDialog = document.getElementById('suggestionDialog');
+            if (event.target === suggestionDialog) {
+                closeSuggestion();
+            }
+        });
     </script>
 </body>
 </html>

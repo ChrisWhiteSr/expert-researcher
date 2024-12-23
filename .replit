@@ -1,4 +1,4 @@
-modules = ["web", "python-3.10"]
+modules = ["python-3.10", "python-3.11", "web"]
 entrypoint = "server.py"
 run = "python server.py"
 
