@@ -6,6 +6,18 @@
     <title>Expert Researcher - Semantic Scholar API</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        /* Modal styles */
+        .modal {
+            transition: opacity 0.25s ease;
+        }
+        .modal-active {
+            display: block;
+        }
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <div class="container mx-auto px-4 py-8">
@@ -46,12 +58,41 @@
             <div id="loading" class="hidden text-center py-4">
                 <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
             </div>
-            <div id="results" class="space-y-4"></div>
+            <div id="results" class="space-y-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
             <div id="pagination" class="mt-4 text-center hidden">
                 <button onclick="loadMore()" 
                         class="bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500">
                     Load More
                 </button>
+            </div>
+        </div>
+
+        <!-- Evaluation and Recommendations Section -->
+        <div id="evaluationSection" class="max-w-4xl mx-auto mt-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4">Evaluation & Recommendations</h2>
+                <div id="evaluation" class="space-y-4">
+                    <!-- Evaluation results will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Structure -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden modal">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-11/12 md:w-3/4 lg:w-1/2 relative">
+                <button onclick="closeModal()" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+                <div class="p-6">
+                    <h3 id="modalTitle" class="text-2xl font-semibold mb-4"></h3>
+                    <p id="modalAuthors" class="text-gray-600 mb-2"></p>
+                    <p id="modalDetails" class="text-gray-500 mb-4"></p>
+                    <p id="modalAbstract" class="text-gray-700"></p>
+                </div>
             </div>
         </div>
     </div>
@@ -63,13 +104,14 @@
         let currentYearEnd = '';
 
         async function searchPapers(useToken = false) {
-            const query = useToken ? currentQuery : document.getElementById('searchQuery').value;
-            const yearStart = useToken ? currentYearStart : document.getElementById('yearStart').value;
-            const yearEnd = useToken ? currentYearEnd : document.getElementById('yearEnd').value;
+            const query = useToken ? currentQuery : document.getElementById('searchQuery').value.trim();
+            const yearStart = useToken ? currentYearStart : document.getElementById('yearStart').value.trim();
+            const yearEnd = useToken ? currentYearEnd : document.getElementById('yearEnd').value.trim();
             
             if (!useToken) {
-                // New search, reset results
+                // New search, reset results and evaluation
                 document.getElementById('results').innerHTML = '';
+                document.getElementById('evaluation').innerHTML = '';
                 nextToken = null;
                 currentQuery = query;
                 currentYearStart = yearStart;
@@ -80,26 +122,48 @@
             loading.classList.remove('hidden');
 
             try {
+                if (!query) {
+                    throw new Error('Search query cannot be empty.');
+                }
+
                 let url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,year,authors,abstract,citationCount,fieldsOfStudy`;
 
                 if (yearStart && yearEnd) {
                     url += `&year=${yearStart}-${yearEnd}`;
+                } else if (yearStart || yearEnd) {
+                    throw new Error('Please provide both start and end years for the year range.');
                 }
                 if (nextToken) {
-                    url += `&token=${nextToken}`;
+                    url += `&token=${encodeURIComponent(nextToken)}`;
                 }
 
                 const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
                 const data = await response.json();
 
                 nextToken = data.token;
-                displayResults(data);
+
+                // Sort papers by relevance (citationCount) and year (newest first)
+                const sortedPapers = _.orderBy(data.data, ['citationCount', 'year'], ['desc', 'desc']);
+                // Limit to top 10
+                const topPapers = sortedPapers.slice(0, 10);
+
+                // Fetch summaries for each paper
+                const papersWithSummaries = topPapers.map(paper => {
+                    const summary = summarizeAbstract(paper.abstract);
+                    return { ...paper, summary };
+                });
+
+                displayResults(papersWithSummaries);
+                evaluateResults(papersWithSummaries);
 
             } catch (error) {
                 console.error('Error fetching data:', error);
                 document.getElementById('results').innerHTML += `
                     <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                        Error fetching results. Please try again.
+                        ${error.message}
                     </div>
                 `;
             } finally {
@@ -107,29 +171,29 @@
             }
         }
 
-        function displayResults(data) {
+        function displayResults(papers) {
             const resultsDiv = document.getElementById('results');
             const paginationDiv = document.getElementById('pagination');
 
-            if (data.data && data.data.length > 0) {
-                data.data.forEach(paper => {
+            if (papers && papers.length > 0) {
+                papers.forEach(paper => {
                     const authors = paper.authors ? paper.authors.map(author => author.name).join(', ') : 'No authors listed';
-                    const abstract = paper.abstract || 'No abstract available';
                     const citationCount = paper.citationCount || 0;
                     const fieldsOfStudy = paper.fieldsOfStudy ? paper.fieldsOfStudy.join(', ') : 'Not specified';
 
                     resultsDiv.innerHTML += `
-                        <div class="bg-white rounded-lg shadow p-6">
+                        <div class="bg-white rounded-lg shadow p-6 hover:bg-gray-50 cursor-pointer transition duration-200" onclick="openModal('${escapeQuotes(paper.title)}', '${escapeQuotes(authors)}', '${escapeQuotes(`Year: ${paper.year || 'N/A'} | Citations: ${citationCount}`)}', '${escapeQuotes(paper.abstract)}')">
                             <h3 class="text-xl font-semibold mb-2">${paper.title}</h3>
                             <p class="text-gray-600 mb-2">${authors}</p>
                             <p class="text-gray-500 mb-2">Year: ${paper.year || 'N/A'} | Citations: ${citationCount}</p>
                             <p class="text-gray-500 mb-4">Fields of Study: ${fieldsOfStudy}</p>
-                            <p class="text-gray-700">${abstract}</p>
+                            <p class="text-gray-700">${paper.summary}</p>
                         </div>
                     `;
                 });
 
-                if (nextToken) {
+                // Display pagination if more papers are available
+                if (papers.length === 10 && nextToken) {
                     paginationDiv.classList.remove('hidden');
                 } else {
                     paginationDiv.classList.add('hidden');
@@ -144,6 +208,36 @@
             }
         }
 
+        function escapeQuotes(str) {
+            return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        function summarizeAbstract(abstract) {
+            if (!abstract) return 'No abstract available.';
+            // Enhanced client-side summarization: Keyword-based sentence ranking
+            const keywords = ['framework', 'method', 'model', 'results', 'analysis', 'performance', 'algorithm', 'data'];
+            const sentences = abstract.match(/[^\.!\?]+[\.!\?]+/g) || [];
+            const sentenceScores = sentences.map(sentence => {
+                let score = 0;
+                keywords.forEach(keyword => {
+                    const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+                    if (regex.test(sentence)) {
+                        score += 1;
+                    }
+                });
+                return { sentence, score };
+            });
+            // Sort sentences by score in descending order
+            sentenceScores.sort((a, b) => b.score - a.score);
+            // Select top 2 sentences
+            const topSentences = sentenceScores.slice(0, 2).map(item => item.sentence.trim());
+            // If less than 2 sentences have scores, fill with top sentences
+            if (topSentences.length < 2 && sentences.length >= 2) {
+                topSentences.push(sentences[1].trim());
+            }
+            return topSentences.join(' ');
+        }
+
         function loadMore() {
             searchPapers(true);
         }
@@ -154,6 +248,126 @@
                 searchPapers();
             }
         });
+
+        // Modal Functions
+        function openModal(title, authors, details, abstract) {
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalAuthors').innerText = authors;
+            document.getElementById('modalDetails').innerText = details;
+            document.getElementById('modalAbstract').innerText = abstract;
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+        }
+
+        // Close modal when clicking outside the modal content
+        window.onclick = function(event) {
+            const modal = document.getElementById('modal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+
+        // Enhanced Evaluation and Recommendations
+        function evaluateResults(papers) {
+            const evaluationDiv = document.getElementById('evaluation');
+            let totalCitations = 0;
+            let avgCitations = 0;
+            let fieldsCount = {};
+            let publicationYears = {};
+
+            if (papers.length > 0) {
+                totalCitations = _.sumBy(papers, 'citationCount');
+                avgCitations = (totalCitations / papers.length).toFixed(2);
+
+                // Count fields of study and publication years
+                papers.forEach(paper => {
+                    if (paper.fieldsOfStudy) {
+                        paper.fieldsOfStudy.forEach(field => {
+                            fieldsCount[field] = (fieldsCount[field] || 0) + 1;
+                        });
+                    }
+
+                    if (paper.year) {
+                        publicationYears[paper.year] = (publicationYears[paper.year] || 0) + 1;
+                    }
+                });
+            }
+
+            // Determine most common fields of study
+            const sortedFields = Object.entries(fieldsCount).sort((a, b) => b[1] - a[1]);
+            const topFields = sortedFields.slice(0, 3).map(field => field[0]).join(', ') || 'Various';
+
+            // Determine publication trends
+            const sortedYears = Object.entries(publicationYears).sort((a, b) => b[0] - a[0]);
+            const recentYears = sortedYears.slice(0, 5).map(year => year[0]).join(', ') || 'Various';
+
+            // Enhanced evaluation logic
+            let feedback = '';
+            if (avgCitations > 100) {
+                feedback = 'Excellent relevance! The search results have a high average citation count.';
+            } else if (avgCitations > 50) {
+                feedback = 'Good relevance with a solid average citation count.';
+            } else if (avgCitations > 20) {
+                feedback = 'Moderate relevance. There is room for improvement in your search terms.';
+            } else {
+                feedback = 'Low relevance. Consider refining your search query for better results.';
+            }
+
+            // Enhanced recommendations
+            let recommendations = '';
+            if (avgCitations > 100) {
+                recommendations = `
+                    <p>Your search query is highly effective. To explore further, you might consider expanding the year range or exploring related fields of study.</p>
+                `;
+            } else if (avgCitations > 50) {
+                recommendations = `
+                    <p>Your search query is effective. For even more relevant results, try adding more specific keywords or focusing on particular fields of study.</p>
+                `;
+            } else if (avgCitations > 20) {
+                recommendations = `
+                    <p>Consider using more specific keywords, narrowing down the year range, or focusing on particular fields of study to improve the relevance of your search results.</p>
+                `;
+            } else {
+                recommendations = `
+                    <p>Your search results have low relevance. Try using more precise keywords, narrowing the year range, or specifying particular fields of study to enhance the quality of your results.</p>
+                `;
+            }
+
+            // Summary of common fields and publication trends
+            let fieldSummary = `
+                <p>The most common fields of study in your results are: ${topFields}.</p>
+            `;
+
+            let yearSummary = `
+                <p>Recent publication years in your results: ${recentYears}.</p>
+            `;
+
+            // Top cited papers
+            const topCitedPapers = _.orderBy(papers, ['citationCount'], ['desc']).slice(0, 3);
+            let topCitedHtml = '';
+            if (topCitedPapers.length > 0) {
+                topCitedHtml = '<h3 class="text-lg font-semibold mb-2">Top Cited Papers:</h3><ul class="list-disc list-inside">';
+                topCitedPapers.forEach(paper => {
+                    topCitedHtml += `<li>${paper.title} (${paper.citationCount} citations)</li>`;
+                });
+                topCitedHtml += '</ul>';
+            }
+
+            evaluationDiv.innerHTML = `
+                <div class="space-y-4">
+                    <div class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded">
+                        <p><strong>Evaluation:</strong> ${feedback}</p>
+                        ${fieldSummary}
+                        ${yearSummary}
+                        ${topCitedHtml}
+                        <p><strong>Recommendations:</strong> ${recommendations}</p>
+                    </div>
+                </div>
+            `;
+        }
     </script>
 </body>
 </html>
