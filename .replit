@@ -1,4 +1,6 @@
 modules = ["web"]
+entrypoint = "server.py"
+run = "python server.py"
 
 [nix]
 channel = "stable-24_05"
